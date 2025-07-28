@@ -204,6 +204,39 @@ void capture_imu_data_and_save()
 {
     FIL file;
     FRESULT res = f_open(&file, filename, FA_WRITE | FA_CREATE_ALWAYS);
+
+    if (!esta_montado)
+    {
+        // ============================================================================
+        // ERRO: Falha ao abrir arquivo para escrita
+        // ============================================================================
+        ssd1306_fill(&ssd, !cor);
+        ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor);
+        ssd1306_draw_string(&ssd, "ERRO! MONTE O", 12, 20);
+        ssd1306_draw_string(&ssd, " CARTAO PARA ", 12, 35);
+        ssd1306_draw_string(&ssd, " CAPTURAR ", 28, 50);
+        ssd1306_send_data(&ssd);
+        capturar_dados = false;
+        gpio_put(LED_VERDE, 0);
+
+        // Piscar roxo (vermelho + azul)
+        for (int i = 0; i < 10; i++)
+        {
+            gpio_put(LED_VERMELHO, 1);
+            gpio_put(LED_AZUL, 1);
+            sleep_ms(150);
+            gpio_put(LED_VERMELHO, 0);
+            gpio_put(LED_AZUL, 0);
+            sleep_ms(150);
+        }
+
+        // Estado final: amarelo (erro persistente)
+        gpio_put(LED_VERDE, 1);
+        gpio_put(LED_VERMELHO, 1);
+        gpio_put(LED_AZUL, 0);
+
+        return;
+    }
     if (res != FR_OK)
     {
         // ============================================================================
