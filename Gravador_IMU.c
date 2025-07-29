@@ -267,23 +267,18 @@ void capture_imu_data_and_save()
         return;
     }
 
-    // =====================================================================
-    // Cabeçalho CSV com BOM UTF-8 + campo de tempo em segundos
-    // =====================================================================
+    // ================================================================
+    // Cabeçalho CSV com campos em m/s² e °/s
+    // ================================================================
     UINT bw;
     const unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
     f_write(&file, bom, sizeof(bom), &bw);
 
-    const char *header = "numero_amostra;accel_x;accel_y;accel_z;giro_x;giro_y;giro_z;tempo_s\n";
+    const char *header = "numero_amostra;accel_x_ms2;accel_y_ms2;accel_z_ms2;giro_x_dps;giro_y_dps;giro_z_dps;tempo_s\n";
     f_write(&file, header, strlen(header), &bw);
 
-    // =====================================================================
-    // Início da captura de dados
-    // =====================================================================
     int16_t accel[3], gyro[3], temp;
     int amostra = 0;
-
-    // Tempo de referência inicial
     absolute_time_t tempo_inicial = get_absolute_time();
 
     // LED vermelho aceso indica início da captura
@@ -292,6 +287,29 @@ void capture_imu_data_and_save()
     gpio_put(LED_AZUL, 0);
     buzzer_beep(500);
 
+    // Fatores de escala
+    const float accel_scale = 9.80665f / 16384.0f; // m/s² por LSB
+    const float gyro_scale = 1.0f / 131.0f;        // °/s por LSB
+
+    // ================================================================
+    // Calibração automática do giroscópio (50 amostras)
+    // ================================================================
+    float offset_gx = 0, offset_gy = 0, offset_gz = 0;
+    for (int i = 0; i < 50; i++)
+    {
+        mpu6050_read_raw(accel, gyro, &temp);
+        offset_gx += gyro[0];
+        offset_gy += gyro[1];
+        offset_gz += gyro[2];
+        sleep_ms(10);
+    }
+    offset_gx = (offset_gx / 50.0f) * gyro_scale;
+    offset_gy = (offset_gy / 50.0f) * gyro_scale;
+    offset_gz = (offset_gz / 50.0f) * gyro_scale;
+
+    // ================================================================
+    // Captura de dados
+    // ================================================================
     while (capturar_dados && amostra < 128)
     {
         // Lê dados brutos da IMU
@@ -302,18 +320,24 @@ void capture_imu_data_and_save()
         int64_t tempo_decorrido_us = absolute_time_diff_us(tempo_inicial, tempo_atual);
         double tempo_s = tempo_decorrido_us / 1e6;
 
-        // Prepara linha CSV com tempo
-        char line[160];
-        sprintf(line, "%d;%d;%d;%d;%d;%d;%d;%.3f\n",
-                amostra + 1, accel[0], accel[1], accel[2],
-                gyro[0], gyro[1], gyro[2], tempo_s);
+        // Conversão para valores físicos
+        float ax = accel[0] * accel_scale;
+        float ay = accel[1] * accel_scale;
+        float az = accel[2] * accel_scale;
 
-        // Pisca LED azul durante gravação
+        float gx = (gyro[0] * gyro_scale) - offset_gx;
+        float gy = (gyro[1] * gyro_scale) - offset_gy;
+        float gz = (gyro[2] * gyro_scale) - offset_gz;
+
+        // CSV: 2 casas decimais
+        char line[160];
+        sprintf(line, "%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f\n",
+                amostra + 1, ax, ay, az, gx, gy, gz, tempo_s);
+
         gpio_put(LED_AZUL, 1);
         f_write(&file, line, strlen(line), &bw);
         gpio_put(LED_AZUL, 0);
 
-        // Atualiza display com progresso
         char linha1[] = "AMOSTRAS";
         char linha2[] = "CAPTURADAS";
         char linha3[16];
@@ -327,7 +351,7 @@ void capture_imu_data_and_save()
         ssd1306_send_data(&ssd);
 
         amostra++;
-        sleep_ms(150); // Tempo entre amostras (ajustável)
+        sleep_ms(150);
     }
 
     // =====================================================================
@@ -355,7 +379,7 @@ void capture_imu_data_and_save()
         sleep_ms(250);
     }
 
-    // Estado final: sistema pronto (verde aceso)
+     // Estado final: sistema pronto (verde aceso)
     gpio_put(LED_VERDE, 1);
     gpio_put(LED_VERMELHO, 0);
     gpio_put(LED_AZUL, 0);
