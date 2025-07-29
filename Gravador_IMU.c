@@ -279,7 +279,6 @@ void capture_imu_data_and_save()
 
     int16_t accel[3], gyro[3], temp;
     int amostra = 0;
-    absolute_time_t tempo_inicial = get_absolute_time();
 
     // LED vermelho aceso indica início da captura
     gpio_put(LED_VERDE, 0);
@@ -310,6 +309,8 @@ void capture_imu_data_and_save()
     // ================================================================
     // Captura de dados
     // ================================================================
+    // armazena o tempo de inicio de dados
+    absolute_time_t tempo_inicial = get_absolute_time();
     while (capturar_dados && amostra < 128)
     {
         // Lê dados brutos da IMU
@@ -379,7 +380,7 @@ void capture_imu_data_and_save()
         sleep_ms(250);
     }
 
-     // Estado final: sistema pronto (verde aceso)
+    // Estado final: sistema pronto (verde aceso)
     gpio_put(LED_VERDE, 1);
     gpio_put(LED_VERMELHO, 0);
     gpio_put(LED_AZUL, 0);
