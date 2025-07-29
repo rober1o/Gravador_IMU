@@ -205,11 +205,10 @@ void capture_imu_data_and_save()
     FIL file;
     FRESULT res = f_open(&file, filename, FA_WRITE | FA_CREATE_ALWAYS);
 
+    // Verifica se o cartão está montado
     if (!esta_montado)
     {
-        // ============================================================================
-        // ERRO: Falha ao abrir arquivo para escrita
-        // ============================================================================
+        // Exibe mensagem de erro no display
         ssd1306_fill(&ssd, !cor);
         ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor);
         ssd1306_draw_string(&ssd, "ERRO! MONTE O", 12, 20);
@@ -219,7 +218,7 @@ void capture_imu_data_and_save()
         capturar_dados = false;
         gpio_put(LED_VERDE, 0);
 
-        // Piscar roxo (vermelho + azul)
+        // Pisca roxo (vermelho + azul)
         for (int i = 0; i < 10; i++)
         {
             gpio_put(LED_VERMELHO, 1);
@@ -230,18 +229,17 @@ void capture_imu_data_and_save()
             sleep_ms(150);
         }
 
-        // Estado final: amarelo (erro persistente)
+        // Estado final: LED amarelo indica erro persistente
         gpio_put(LED_VERDE, 1);
         gpio_put(LED_VERMELHO, 1);
         gpio_put(LED_AZUL, 0);
-
         return;
     }
+
+    // Verifica se houve erro ao abrir arquivo
     if (res != FR_OK)
     {
-        // ============================================================================
-        // ERRO: Falha ao abrir arquivo para escrita
-        // ============================================================================
+        // Exibe mesma mensagem de erro no display
         ssd1306_fill(&ssd, !cor);
         ssd1306_rect(&ssd, 3, 3, 122, 60, cor, !cor);
         ssd1306_draw_string(&ssd, "ERRO! MONTE O", 12, 20);
@@ -251,7 +249,7 @@ void capture_imu_data_and_save()
         capturar_dados = false;
         gpio_put(LED_VERDE, 0);
 
-        // Piscar roxo (vermelho + azul)
+        // Pisca roxo (vermelho + azul)
         for (int i = 0; i < 10; i++)
         {
             gpio_put(LED_VERMELHO, 1);
@@ -262,31 +260,33 @@ void capture_imu_data_and_save()
             sleep_ms(150);
         }
 
-        // Estado final: amarelo (erro persistente)
+        // Estado final: LED amarelo
         gpio_put(LED_VERDE, 1);
         gpio_put(LED_VERMELHO, 1);
         gpio_put(LED_AZUL, 0);
-
         return;
     }
 
-    // ============================================================================
-    // Cabeçalho do CSV (incluindo BOM para UTF-8)
-    // ============================================================================
+    // =====================================================================
+    // Cabeçalho CSV com BOM UTF-8 + campo de tempo em segundos
+    // =====================================================================
     UINT bw;
     const unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
     f_write(&file, bom, sizeof(bom), &bw);
 
-    const char *header = "numero_amostra;accel_x;accel_y;accel_z;giro_x;giro_y;giro_z\n";
+    const char *header = "numero_amostra;accel_x;accel_y;accel_z;giro_x;giro_y;giro_z;tempo_s\n";
     f_write(&file, header, strlen(header), &bw);
 
-    // ============================================================================
+    // =====================================================================
     // Início da captura de dados
-    // ============================================================================
+    // =====================================================================
     int16_t accel[3], gyro[3], temp;
     int amostra = 0;
 
-    // Estado: LED vermelho aceso durante captura
+    // Tempo de referência inicial
+    absolute_time_t tempo_inicial = get_absolute_time();
+
+    // LED vermelho aceso indica início da captura
     gpio_put(LED_VERDE, 0);
     gpio_put(LED_VERMELHO, 1);
     gpio_put(LED_AZUL, 0);
@@ -294,15 +294,21 @@ void capture_imu_data_and_save()
 
     while (capturar_dados && amostra < 128)
     {
-        // Lê dados da IMU
+        // Lê dados brutos da IMU
         mpu6050_read_raw(accel, gyro, &temp);
 
-        // Prepara linha CSV
-        char line[128];
-        sprintf(line, "%d;%d;%d;%d;%d;%d;%d\n",
-                amostra + 1, accel[0], accel[1], accel[2], gyro[0], gyro[1], gyro[2]);
+        // Captura tempo atual e calcula tempo relativo em segundos
+        absolute_time_t tempo_atual = get_absolute_time();
+        int64_t tempo_decorrido_us = absolute_time_diff_us(tempo_inicial, tempo_atual);
+        double tempo_s = tempo_decorrido_us / 1e6;
 
-        // LED azul pisca durante escrita no cartão
+        // Prepara linha CSV com tempo
+        char line[160];
+        sprintf(line, "%d;%d;%d;%d;%d;%d;%d;%.3f\n",
+                amostra + 1, accel[0], accel[1], accel[2],
+                gyro[0], gyro[1], gyro[2], tempo_s);
+
+        // Pisca LED azul durante gravação
         gpio_put(LED_AZUL, 1);
         f_write(&file, line, strlen(line), &bw);
         gpio_put(LED_AZUL, 0);
@@ -321,12 +327,12 @@ void capture_imu_data_and_save()
         ssd1306_send_data(&ssd);
 
         amostra++;
-        sleep_ms(150);
+        sleep_ms(150); // Tempo entre amostras (ajustável)
     }
 
-    // ============================================================================
-    // Fim da captura: Fecha arquivo e sinaliza
-    // ============================================================================
+    // =====================================================================
+    // Finaliza captura: fecha arquivo e sinaliza sucesso
+    // =====================================================================
     f_close(&file);
     gpio_put(LED_VERMELHO, 0);
     buzzer_beep(200);
@@ -334,9 +340,7 @@ void capture_imu_data_and_save()
     buzzer_beep(200);
     pwm_set_enabled(slice_num, false);
 
-    // ============================================================================
-    // Feedback visual: Dados salvos com sucesso
-    // ============================================================================
+    // Feedback visual: pisca LED azul e exibe mensagem
     for (int i = 0; i < 6; i++)
     {
         ssd1306_fill(&ssd, !cor);
@@ -351,11 +355,10 @@ void capture_imu_data_and_save()
         sleep_ms(250);
     }
 
-    // Estado final: Sistema pronto (verde aceso)
+    // Estado final: sistema pronto (verde aceso)
     gpio_put(LED_VERDE, 1);
     gpio_put(LED_VERMELHO, 0);
     gpio_put(LED_AZUL, 0);
-
     capturar_dados = false;
 }
 
